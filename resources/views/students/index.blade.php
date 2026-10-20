@@ -54,10 +54,4 @@
   </table>
 <div>
 
-<script src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.min.js" crossorigin="anonymous"></script>
-<script type="text/javascript">
-  $(document).ready(function() {
-    $('.table-data').DataTable();
-  });
-</script>
 @endsection

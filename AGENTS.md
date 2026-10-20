@@ -50,11 +50,20 @@ Composer dependencies install into the bind-mounted `vendor/` at container start
 - Existing dead code left untouched (not needed to run): `/students/index` renders a
   missing view (`students.blade.php`), the `create/show/edit/update/store` actions of the
   resource controllers are empty stubs, and `StudentController::boot()` never runs.
-- Existing console noise on the students page (pre-existing, harmless):
-  `students/index.blade.php` pulls DataTables from a CDN before jQuery exists, and
-  `layout.blade.php` loads `js/app.js` with `type="text/js"` so it never executes —
-  hence "$ is not defined" / "jQuery is not defined" in the browser console. The table
-  still renders without DataTables.
+- **`public/js/app.js` is a broken build artifact: leave it non-executing.**
+  The committed bundle was built from a failed compile — the `resources/sass/app.scss`
+  module is baked in as an error module (its line 11 imports
+  `~node_modules/font-awesome/scss/font-awesome.scss`, a path that does not resolve), so
+  merely *executing* it throws `Module build failed … SassError: Can't find stylesheet to
+  import` in the console even though the page renders. `layout.blade.php` therefore keeps
+  `type="text/js"` on the `js/app.js` tag, which makes the browser skip it entirely; no
+  page needs jQuery. Fixing this properly means rebuilding the assets on Node 14
+  (Mix 5 + node-sass@5) with that import corrected to `~font-awesome/scss/font-awesome.scss`.
+  CSS and fonts are unaffected — `public/css/app.css` is a complete, working build.
+- The students page used to pull DataTables from a CDN before any jQuery existed and then
+  call `$('.table-data').DataTable()` on a selector that is absent from the markup. That
+  block was dead code and the source of the `$ is not defined` console error, so it was
+  removed; the table renders exactly as before (sorting/search were never active).
 - The tables are not responsive (8 columns, no `.table-responsive` wrapper), so the page
   scrolls sideways on phone-width viewports.
 
