@@ -1,0 +1,13 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/students",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "APP_KEY",
+      "description": "Laravel application encryption key (sessions, cookies, encrypted values). Laravel accepts only a 16- or 32-byte key in the \"base64:...\" form produced by `php artisan key:generate --show`; the generated placeholder is a generic random string and is rejected, so the sandbox generates and reuses a valid development key instead (see docker-compose.base44.yml). Supply a real base64: key here to take precedence over it.",
+      "requiredAtBoot": true,
+      "generatedForDevelopment": true
+    }
+  ]
+}

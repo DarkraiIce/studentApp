@@ -13,6 +13,10 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
+// The application has no landing page of its own; send the root to the student list so
+// the app is reachable without hand-typing a path.
+Route::redirect('/', '/students');
+
 Route::get('/students/index', function() {
     return view('students');
 });

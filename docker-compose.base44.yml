@@ -1,0 +1,117 @@
+# Base44 sandbox environment for the Camino Laravel app.
+#
+#   docker compose -f docker-compose.base44.yml up -d --build
+#
+# Everything runs from the cloned source (bind mount), never from a prebuilt image, so
+# edits show up without rebuilding. The app is served by `php artisan serve`; PHP is
+# interpreted per request, so changes to routes, controllers and Blade views appear on
+# the next page load (no watcher/restart needed).
+#
+#   web  -> http://localhost:3000  ("/" redirects to the students list)
+#   db   -> mysql:8.0, internal only
+#   migrate -> one-shot: composer install + php artisan migrate, then exits
+#
+# Secrets come from the platform-managed file /run/base44/app.env (APP_KEY); it is listed
+# last in env_file so it always overrides the committed defaults.
+x-php-app: &php-app
+  build:
+    context: .base44/php
+  image: camino-base44-php:local
+  working_dir: /var/www/html
+  volumes:
+    - .:/var/www/html
+    # Holds a generated development APP_KEY (outside the repo, survives restarts).
+    - app-key:/var/base44/app-key
+  env_file:
+    - ./.env.base44-defaults
+    - /run/base44/app.env
+  environment:
+    # Passed through so the app can tell it is running behind the sandbox preview proxy.
+    - BASE44_PREVIEW_MODE
+    # Public origin of the preview; consumed by the BASE44_PREVIEW_MODE branch in
+    # app/Providers/AppServiceProvider.php so generated URLs resolve in the browser.
+    # Never hardcode the resolved value — it is environment-specific.
+    - APP_URL=https://3000-${BASE44_PUBLIC_HOST_SUFFIX}
+    # Local development database credentials (compose-only, not user secrets).
+    - DB_CONNECTION=mysql
+    - DB_HOST=db
+    - DB_PORT=3306
+    - DB_DATABASE=camino
+    - DB_USERNAME=camino
+    - DB_PASSWORD=camino
+    # The PHP built-in server is single-threaded by default; give it workers so asset
+    # and page requests are not serialized.
+    - PHP_CLI_SERVER_WORKERS=4
+
+services:
+  db:
+    image: mysql:8.0
+    restart: on-failure
+    environment:
+      MYSQL_DATABASE: camino
+      MYSQL_USER: camino
+      MYSQL_PASSWORD: camino
+      MYSQL_ROOT_PASSWORD: camino-root
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # One-shot: installs dependencies from the lockfile into the bind-mounted vendor/ and
+  # applies migrations. `web` waits for it to finish successfully.
+  migrate:
+    <<: *php-app
+    command:
+      - sh
+      - -ec
+      - |
+        [ -d vendor/laravel/framework ] || composer install --no-interaction --no-progress
+        php artisan migrate --force
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    <<: *php-app
+    restart: on-failure
+    ports:
+      - "3000:3000"
+    command:
+      - sh
+      - -ec
+      - |
+        [ -d vendor/laravel/framework ] || composer install --no-interaction --no-progress
+
+        # --no-reload is required: without it `artisan serve` unsets every variable found
+        # in the process environment before starting the server, which would drop all of
+        # the configuration wired in through env_file (APP_KEY, DB_*, APP_URL).
+        #
+        # Laravel only accepts a 16- or 32-byte APP_KEY (the "base64:..." form produced by
+        # `php artisan key:generate`); the generic placeholder delivered in the secrets
+        # file is not in that form. Keep a valid development key in a volume so it is
+        # stable across restarts, and let a valid "base64:" key from the secrets file win.
+        KEY_FILE=/var/base44/app-key/app_key
+        [ -s "$$KEY_FILE" ] || { mkdir -p "$$(dirname "$$KEY_FILE")"; php artisan key:generate --show > "$$KEY_FILE"; }
+        case "$${APP_KEY:-}" in base64:*) ;; *) export APP_KEY="$$(cat "$$KEY_FILE")" ;; esac
+
+        exec php artisan serve --host=0.0.0.0 --port=3000 --no-reload
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # Probes a real page (which also queries MySQL), not just an open port.
+      test: ["CMD-SHELL", "php -r 'exit(file_get_contents(\"http://127.0.0.1:3000/students\")===false ? 1 : 0);'"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 90s
+
+volumes:
+  mysql-data:
+  app-key:
